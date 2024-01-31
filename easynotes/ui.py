@@ -6,16 +6,19 @@ from notes import NotesRepository, Note, Article
 class NotesUI:
     def __init__(self, repo: NotesRepository) -> None:
         self._repo = repo
-        self.init_session(repo.root)
-        self._note = repo[st.session_state.label]
+        self.init_session()
 
-    def init_session(self, note: Note) -> None:
+    def init_session(self) -> None:
         st.title("Easy Notes")
 
-        if "label" not in st.session_state:
-            st.session_state["label"] = note.label
+        if "note_id" not in st.session_state:
+            st.session_state["note_id"] = self._repo.root
 
-    def rerun(self) -> None:
+        self._note_id = st.session_state.note_id
+        self._note = self._repo[self._note_id]
+
+    def rerun(self, note_id: str) -> None:
+        st.session_state.note_id = note_id
         self._repo.save()
         st.rerun()
 
@@ -35,7 +38,7 @@ class NotesUI:
         self._note.articles = updated_articles
 
         if st.button("Update articles"):
-            self.rerun()
+            self.rerun(self._note_id)
 
         st.divider()
 
@@ -46,33 +49,31 @@ class NotesUI:
             new_article = Article(name=name, text=text)
             self._note.articles.append(new_article)
             st.success("Article added successfully!")
-            self.rerun()
+            self.rerun(self._note_id)
 
     def goto(self) -> None:
         st.divider()
         st.header("Go to")
 
-        if self._note.parent_label is not None:
-            parent = self._repo[self._note.parent_label]
+        if self._note.parent_id is not None:
+            parent = self._repo[self._note.parent_id]
 
-            if st.button(f"[{parent.label}] {parent.title} (Parent of this note)"):
-                st.session_state.label = self._note.parent_label
-                self.rerun()
+            if st.button(parent.title):
+                self.rerun(self._note.parent_id)
 
-        for child in self._note.children:
-            if st.button(f"[{child.label}] {child.title}"):
-                st.session_state.label = child.label
-                self.rerun()
+        for child_id, child in self._repo.children(self._note_id).items():
+            if st.button(child.title):
+                self.rerun(child_id)
 
     def new(self) -> None:
         st.divider()
         st.header("New note")
 
-        label = st.text_input("Label (unique value)")
         title = st.text_input("Title")
+        new_note_id = "".join(title.split())
 
         if st.button("Add note"):
-            new_note = Note(label=label, title=title, parent_label=self._note.label)
-            self._note.children.append(new_note)
+            new_note = Note(title=title, parent_id=self._note_id)
+            self._repo[new_note_id] = new_note
             st.success("Note added successfully!")
-            self.rerun()
+            self.rerun(new_note_id)
