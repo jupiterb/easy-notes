@@ -19,9 +19,12 @@ class NotesUI:
 
         st.header(self._note.title)
 
-    def rerun(self, note_id: str) -> None:
+    def rerun(self, note_id: str, save: bool = True) -> None:
         st.session_state.note_id = note_id
-        self._repo.save()
+
+        if save:
+            self._repo.save()
+
         st.rerun()
 
     def display_articles(self) -> None:
@@ -48,11 +51,11 @@ class NotesUI:
             parent = self._repo[self._note.parent_id]
 
             if st.button(parent.title):
-                self.rerun(self._note.parent_id)
+                self.rerun(self._note.parent_id, save=False)
 
         for child_id, child in self._repo.children(self._note_id).items():
             if st.button(child.title):
-                self.rerun(child_id)
+                self.rerun(child_id, save=False)
 
     def add_new(self) -> None:
         st.divider()
