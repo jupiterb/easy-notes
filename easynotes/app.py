@@ -3,7 +3,7 @@ from ui import NotesUI
 
 
 def main():
-    file_path = "./notes.json"
+    file_path = "./resources/notes.json"
     repo = NotesRepository(file_path)
     ui = NotesUI(repo)
 
