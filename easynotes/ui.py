@@ -1,6 +1,6 @@
 import streamlit as st
 
-from notes import NotesRepository, Note, Article
+from notes import NotesRepository, Note, NoteData, Article
 
 
 class NotesUI:
@@ -9,74 +9,113 @@ class NotesUI:
         self.init_session()
 
     def init_session(self) -> None:
-        st.title("Easy Notes")
+        if "id" not in st.session_state:
+            st.session_state["id"] = self._repo.root.id
 
-        if "note_id" not in st.session_state:
-            st.session_state["note_id"] = self._repo.root
+        id = st.session_state.id
+        self._note: Note = self._repo[id]
+        self._source: Note | None = self._repo.source(id)
 
-        self._note_id = st.session_state.note_id
-        self._note = self._repo[self._note_id]
-
-        st.header(self._note.title)
-
-    def rerun(self, note_id: str, save: bool = True) -> None:
-        st.session_state.note_id = note_id
-
-        if save:
-            self._repo.save()
-
+    def reload(self, id: str) -> None:
+        self._repo.save()
+        st.session_state.id = id
         st.rerun()
 
-    def display_articles(self) -> None:
-        line_h = 23
-        max_h = 460
+    def display_note_content(self) -> None:
+        st.title("Easy Notes")
+        st.divider()
+        st.header(self._note.data.title)
 
-        for i, article in enumerate(self._note.articles):
+        for article in self._note.data.articles:
             st.subheader(article.name)
             st.markdown(article.text)
 
+    def display_sidebar_mamager(self) -> None:
+        with st.sidebar:
+            self._edit_articles()
+            self._add_new()
+            self._link_related_notes()
+            self._manage_note()
+
+    def _edit_articles(self) -> None:
+        if not any(self._note.data.articles):
+            return
+
+        st.header("Articles")
+
+        line_h = 23
+        max_h = 460
+
+        for i, article in enumerate(self._note.data.articles):
             with st.expander(f'Edit "{article.name}"'):
+                name = st.text_input(f'Rename "{article.name}', value=article.name)
+
                 h = min(len(article.text.splitlines()) * line_h, max_h)
-                text = st.text_area(article.name, value=article.text, height=h)
+                text = st.text_area(
+                    f'Edit "{article.name}"', value=article.text, height=h
+                )
 
                 if st.button(f'Update "{article.name}"'):
-                    self._note.articles[i] = Article(name=article.name, text=text)
-                    self.rerun(self._note_id)
+                    self._note.data.articles[i] = Article(name=name, text=text)
+                    self.reload(self._note.id)
 
-    def change_note(self) -> None:
-        st.divider()
-        st.header("Go to")
+                if st.button(f'Delete "{article.name}"'):
+                    self._note.data.articles.pop(i)
+                    self.reload(self._note.id)
 
-        if self._note.parent_id is not None:
-            parent = self._repo[self._note.parent_id]
+    def _link_related_notes(self) -> None:
+        links = self._repo.destinations(self._note.id)
 
-            if st.button(parent.title):
-                self.rerun(self._note.parent_id, save=False)
+        if self._source is not None:
+            links.append(self._repo[self._source.id])
 
-        for child_id, child in self._repo.children(self._note_id).items():
-            if st.button(child.title):
-                self.rerun(child_id, save=False)
+        if any(links):
+            st.header("Go to")
 
-    def add_new(self) -> None:
-        st.divider()
+        for note in links:
+            if st.button(note.data.title):
+                self.reload(note.id)
+
+    def _add_new(self) -> None:
         st.header("New")
 
-        with st.expander("**New article**"):
+        with st.expander("New article"):
             name = st.text_input("New article name", value="")
             text = st.text_area("New article text", value="")
 
             if st.button("Add article"):
                 new_article = Article(name=name, text=text)
-                self._note.articles.append(new_article)
+                self._note.data.articles.append(new_article)
                 st.success("Article added successfully!")
-                self.rerun(self._note_id)
+                self.reload(self._note.id)
 
-        with st.expander("**New note**"):
+        with st.expander("New note"):
             title = st.text_input("Title")
-            new_note_id = "".join(title.split())
 
             if st.button("Add note"):
-                new_note = Note(title=title, parent_id=self._note_id)
-                self._repo[new_note_id] = new_note
+                data = NoteData(title=title)
+                id = self._repo.add(data, self._note.id).id
                 st.success("Note added successfully!")
-                self.rerun(new_note_id)
+                self.reload(id)
+
+    def _manage_note(self) -> None:
+        st.header("Manage")
+
+        with st.expander("Rename"):
+            title = st.text_input("Title", value=self._note.data.title)
+            self._note.data.title = title
+
+            if st.button("Update"):
+                self.reload(self._note.id)
+
+        if self._source is None:
+            return
+
+        with st.expander("Delete"):
+            st.text(
+                f'Removing note "{self._note.data.title}" will cause removing all notes falling under this note'
+            )
+
+            if st.button(f'Delete "{self._note.data.title}"'):
+                self._repo.remove(self._note.id)
+                self.reload(self._source.id)

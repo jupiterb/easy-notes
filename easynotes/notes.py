@@ -1,6 +1,12 @@
 import json
+import uuid
+
+from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from typing import Iterator
+
+
+_new_id = lambda: uuid.uuid4().__str__()
 
 
 class Article(BaseModel):
@@ -8,14 +14,21 @@ class Article(BaseModel):
     text: str
 
 
-class Note(BaseModel):
+class NoteData(BaseModel):
     title: str
     articles: list[Article] = Field(default_factory=list)
-    parent_id: str | None = None
 
 
-class Notes(BaseModel):
-    mapping: dict[str, Note]
+class Tree(BaseModel):
+    root: str
+    notes: dict[str, NoteData] = Field(default_factory=dict)
+    edges: dict[str, list[str]] = Field(default_factory=dict)
+
+
+@dataclass
+class Note:
+    id: str
+    data: NoteData
 
 
 class NotesRepository:
@@ -24,36 +37,63 @@ class NotesRepository:
         self.load()
 
     @property
-    def root(self) -> str:
-        return [id for id in self if self[id].parent_id is None][0]
+    def root(self) -> Note:
+        return self[self._tree.root]
 
-    def children(self, parent_id: str) -> dict[str, Note]:
-        return {id: self[id] for id in self if self[id].parent_id == parent_id}
+    def destinations(self, source_id: str) -> list[Note]:
+        return [self[id] for id in self._tree.edges[source_id]]
+
+    def source(self, id: str) -> Note | None:
+        search = [note for note in self if id in self._tree.edges[note.id]]
+        return search[0] if any(search) else None
+
+    def get(self, id: str) -> Note:
+        return Note(id, self._tree.notes[id])
+
+    def add(self, data: NoteData, source_id: str) -> Note:
+        id = _new_id()
+
+        self._tree.notes[id] = data
+        self._tree.edges[id] = []
+        self._tree.edges[source_id].append(id)
+
+        return self[id]
+
+    def remove(self, id: str) -> None:
+        for note in self.destinations(id):
+            self.remove(note.id)
+
+        source = self.source(id=id)
+
+        if source is not None:
+            self._tree.edges[source.id].remove(id)
+
+        del self._tree.notes[id]
+        del self._tree.edges[id]
 
     def load(self) -> None:
         try:
             with open(self._file_path, "r") as file:
                 notes_data_json = json.load(file)
-                self._notes = Notes(**notes_data_json)
+                self._tree = Tree(**notes_data_json)
         except FileNotFoundError:
-            self._build_empty_map()
+            self._init_tree()
+            self.save()
 
     def save(self) -> None:
         with open(self._file_path, "w") as file:
-            json.dump(self._notes, file, default=lambda obj: obj.__dict__)
+            json.dump(self._tree, file, default=lambda obj: obj.__dict__)
 
-    def _build_empty_map(self) -> None:
-        mapping = {"ROOT": Note(title="Root of all notes")}
-        self._notes = Notes(mapping=mapping)
+    def _init_tree(self) -> None:
+        root_id = _new_id()
+        root_data = NoteData(title="Start")
+        self._tree = Tree(root=root_id, notes={root_id: root_data}, edges={root_id: []})
 
     def __len__(self) -> int:
-        return len(self._notes.mapping)
+        return len(self._tree.notes)
 
-    def __iter__(self) -> Iterator[str]:
-        return self._notes.mapping.__iter__()
+    def __iter__(self) -> Iterator[Note]:
+        return [self[id] for id in self._tree.notes].__iter__()
 
     def __getitem__(self, id: str) -> Note:
-        return self._notes.mapping[id]
-
-    def __setitem__(self, id: str, note: Note) -> None:
-        self._notes.mapping[id] = note
+        return self.get(id)

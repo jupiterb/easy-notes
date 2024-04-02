@@ -7,9 +7,8 @@ def main():
     repo = NotesRepository(file_path)
     ui = NotesUI(repo)
 
-    ui.display_articles()
-    ui.add_new()
-    ui.change_note()
+    ui.display_note_content()
+    ui.display_sidebar_mamager()
 
 
 if __name__ == "__main__":
